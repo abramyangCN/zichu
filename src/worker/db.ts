@@ -81,6 +81,7 @@ interface WeatherRow {
   observed_at: string;
   temperature_c: number;
   apparent_temperature_c: number | null;
+  relative_humidity_percent: number | null;
   precipitation_mm: number | null;
   wind_speed_kmh: number | null;
   wind_direction_degrees: number | null;
@@ -94,6 +95,7 @@ export async function getCachedWeather(
   const row = await db
     .prepare(
       `SELECT activity_id, observed_at, temperature_c, apparent_temperature_c,
+              relative_humidity_percent,
               precipitation_mm, wind_speed_kmh, wind_direction_degrees, weather_code
        FROM activity_weather WHERE activity_id = ?`,
     )
@@ -105,6 +107,7 @@ export async function getCachedWeather(
     observedAt: row.observed_at,
     temperatureC: row.temperature_c,
     apparentTemperatureC: row.apparent_temperature_c,
+    relativeHumidityPercent: row.relative_humidity_percent,
     precipitationMm: row.precipitation_mm,
     windSpeedKmh: row.wind_speed_kmh,
     windDirectionDegrees: row.wind_direction_degrees,
@@ -117,13 +120,15 @@ export async function saveWeather(db: D1Database, weather: ActivityWeather): Pro
   await db
     .prepare(
       `INSERT INTO activity_weather
-       (activity_id, observed_at, temperature_c, apparent_temperature_c, precipitation_mm,
-        wind_speed_kmh, wind_direction_degrees, weather_code, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (activity_id, observed_at, temperature_c, apparent_temperature_c,
+        relative_humidity_percent, precipitation_mm, wind_speed_kmh,
+        wind_direction_degrees, weather_code, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(activity_id) DO UPDATE SET
          observed_at = excluded.observed_at,
          temperature_c = excluded.temperature_c,
          apparent_temperature_c = excluded.apparent_temperature_c,
+         relative_humidity_percent = excluded.relative_humidity_percent,
          precipitation_mm = excluded.precipitation_mm,
          wind_speed_kmh = excluded.wind_speed_kmh,
          wind_direction_degrees = excluded.wind_direction_degrees,
@@ -136,6 +141,7 @@ export async function saveWeather(db: D1Database, weather: ActivityWeather): Pro
       weather.observedAt,
       weather.temperatureC,
       weather.apparentTemperatureC,
+      weather.relativeHumidityPercent,
       weather.precipitationMm,
       weather.windSpeedKmh,
       weather.windDirectionDegrees,

@@ -53,7 +53,12 @@ export function buildMetrics(
   streams: StravaStreams,
   ftp: number | null,
 ): SummaryMetrics {
-  const np = normalizedPower(powerValues(streams)) ?? activity.weighted_average_watts ?? null;
+  const powers = powerValues(streams);
+  const np = normalizedPower(powers) ?? activity.weighted_average_watts ?? null;
+  const averagePower =
+    activity.average_watts ??
+    (powers.length ? powers.reduce((total, value) => total + value, 0) / powers.length : null);
+  const maxPower = activity.max_watts ?? (powers.length ? Math.max(...powers) : null);
   const intensityFactor = np && ftp ? np / ftp : null;
   const trainingStressScore =
     np && ftp && intensityFactor
@@ -64,6 +69,8 @@ export function buildMetrics(
     movingMinutes: Math.round(activity.moving_time / 60),
     elevationGain: Math.round(activity.total_elevation_gain),
     averageSpeedKmh: activity.average_speed ? round(activity.average_speed * 3.6) : null,
+    averagePower: averagePower === null ? null : Math.round(averagePower),
+    maxPower: maxPower === null ? null : Math.round(maxPower),
     normalizedPower: np ? Math.round(np) : null,
     intensityFactor: intensityFactor ? round(intensityFactor, 2) : null,
     trainingStressScore: trainingStressScore ? Math.round(trainingStressScore) : null,
@@ -74,6 +81,10 @@ export function buildMetrics(
   };
 }
 
+function duration(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
 export function generateSummary(
   activity: StravaActivity,
   streams: StravaStreams,
@@ -81,29 +92,40 @@ export function generateSummary(
   weather: ActivityWeather | null = null,
 ): GeneratedSummary {
   const metrics = buildMetrics(activity, streams, ftp);
-  const lines = [
-    `🚴 ${metrics.distanceKm} km · ${metrics.movingMinutes} min · ${metrics.elevationGain} m 爬升`,
+  const sections = [
+    activity.device_name ? `🚴 骑行记录 | ${activity.device_name}` : "🚴 骑行记录",
   ];
-  const performance = [
-    metrics.averageSpeedKmh ? `均速 ${metrics.averageSpeedKmh} km/h` : null,
-    metrics.normalizedPower ? `NP ${metrics.normalizedPower} W` : null,
-    metrics.intensityFactor ? `IF ${metrics.intensityFactor}` : null,
-    metrics.trainingStressScore ? `TSS ${metrics.trainingStressScore}` : null,
+  if (weather) sections.push(weatherSummary(weather));
+
+  sections.push(
+    [
+      "📊 骑行数据",
+      `📏 距离：${metrics.distanceKm} km`,
+      `⏱️ 移动时间：${duration(metrics.movingMinutes)} h`,
+      metrics.averageSpeedKmh === null ? null : `🚀 平均速度：${metrics.averageSpeedKmh} km/h`,
+      `⛰️ 累计爬升：${metrics.elevationGain} m`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+
+  const power = [
+    "⚡️ 功率表现",
+    metrics.averagePower === null ? null : `平均功率：${metrics.averagePower} W`,
+    metrics.maxPower === null ? null : `最大功率：${metrics.maxPower} W`,
   ].filter(Boolean);
-  if (performance.length) lines.push(`⚡ ${performance.join(" · ")}`);
-  const body = [
-    metrics.averageHeartRate ? `平均心率 ${metrics.averageHeartRate} bpm` : null,
-    metrics.maxHeartRate ? `最高心率 ${metrics.maxHeartRate} bpm` : null,
-    metrics.averageCadence ? `平均踏频 ${metrics.averageCadence} rpm` : null,
-    metrics.workKilojoules ? `做功 ${metrics.workKilojoules} kJ` : null,
+  if (power.length > 1) sections.push(power.join("\n"));
+
+  const heartRate = [
+    "🫀 心率表现",
+    metrics.averageHeartRate === null ? null : `平均心率：${metrics.averageHeartRate} bpm`,
+    metrics.maxHeartRate === null ? null : `最大心率：${metrics.maxHeartRate} bpm`,
   ].filter(Boolean);
-  if (body.length) lines.push(`🫀 ${body.join(" · ")}`);
-  if (weather) lines.push(weatherSummary(weather));
-  lines.push("由 izchu 根据 Strava 活动数据生成");
+  if (heartRate.length > 1) sections.push(heartRate.join("\n"));
   return {
     activityId: activity.id,
     activityName: activity.name,
-    description: lines.join("\n"),
+    description: sections.join("\n\n"),
     metrics,
     weather,
     source: "strava",

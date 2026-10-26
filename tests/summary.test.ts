@@ -13,6 +13,7 @@ import type { ActivityWeather, StravaActivity, StravaStreams } from "../src/work
 const activity: StravaActivity = {
   id: 42,
   name: "午后骑行",
+  device_name: "Cinelli Pressure",
   start_date_local: "2026-10-23T14:00:00+08:00",
   distance: 40_120,
   moving_time: 5_400,
@@ -34,6 +35,7 @@ const weather: ActivityWeather = {
   observedAt: "2026-10-23T14:00",
   temperatureC: 18.2,
   apparentTemperatureC: 17.4,
+  relativeHumidityPercent: 82,
   precipitationMm: 0.3,
   windSpeedKmh: 12.6,
   windDirectionDegrees: 45,
@@ -58,16 +60,44 @@ describe("generateSummary", () => {
     expect(result.metrics.intensityFactor).toBe(0.8);
     expect(result.metrics.trainingStressScore).toBe(96);
     expect(result.description).toContain("40.1 km");
-    expect(result.description).toContain("NP 200 W");
+    expect(result.description).toContain("平均功率：200 W");
+    expect(result.description).toContain("最大功率：200 W");
+    expect(result.description).toContain("移动时间：01:30 h");
+    expect(result.description).toContain("骑行记录 | Cinelli Pressure");
   });
 
   it("includes optional cached weather with attribution", () => {
     const result = generateSummary(activity, streams, 250, weather);
-    expect(result.description).toContain("多云");
-    expect(result.description).toContain("18.2°C");
-    expect(result.description).toContain("东北风");
-    expect(result.description).toContain("Open-Meteo 估算");
+    expect(result.description).toBe(`🚴 骑行记录 | Cinelli Pressure
+
+🌤️ 天气信息 | Open-Meteo
+☁️ Cool, partly cloudy
+🌡️ 温度：18.2°C
+🧍 体感温度：17.4°C
+💨 风速：12.6 km/h
+💧 湿度：82%
+
+📊 骑行数据
+📏 距离：40.1 km
+⏱️ 移动时间：01:30 h
+🚀 平均速度：26.7 km/h
+⛰️ 累计爬升：328 m
+
+⚡️ 功率表现
+平均功率：200 W
+最大功率：200 W
+
+🫀 心率表现
+平均心率：148 bpm
+最大心率：181 bpm`);
     expect(result.weather).toEqual(weather);
+  });
+
+  it("omits the entire power section when power data is unavailable", () => {
+    const result = generateSummary(activity, {}, 250);
+    expect(result.description).not.toContain("功率表现");
+    expect(result.description).not.toContain("平均功率");
+    expect(result.description).not.toContain("最大功率");
   });
 });
 

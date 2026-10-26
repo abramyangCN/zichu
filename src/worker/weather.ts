@@ -5,6 +5,7 @@ interface OpenMeteoHourly {
   time?: string[];
   temperature_2m?: Array<number | null>;
   apparent_temperature?: Array<number | null>;
+  relative_humidity_2m?: Array<number | null>;
   precipitation?: Array<number | null>;
   weather_code?: Array<number | null>;
   wind_speed_10m?: Array<number | null>;
@@ -17,34 +18,34 @@ interface OpenMeteoResponse {
 }
 
 const weatherLabels: Record<number, string> = {
-  0: "晴",
-  1: "大致晴朗",
-  2: "多云",
-  3: "阴",
-  45: "有雾",
-  48: "雾凇",
-  51: "小毛毛雨",
-  53: "毛毛雨",
-  55: "较强毛毛雨",
-  56: "冻毛毛雨",
-  57: "强冻毛毛雨",
-  61: "小雨",
-  63: "中雨",
-  65: "大雨",
-  66: "冻雨",
-  67: "强冻雨",
-  71: "小雪",
-  73: "中雪",
-  75: "大雪",
-  77: "米雪",
-  80: "阵雨",
-  81: "较强阵雨",
-  82: "强阵雨",
-  85: "阵雪",
-  86: "强阵雪",
-  95: "雷暴",
-  96: "雷暴伴冰雹",
-  99: "强雷暴伴冰雹",
+  0: "clear",
+  1: "mostly clear",
+  2: "partly cloudy",
+  3: "overcast",
+  45: "foggy",
+  48: "rime fog",
+  51: "light drizzle",
+  53: "drizzle",
+  55: "heavy drizzle",
+  56: "freezing drizzle",
+  57: "heavy freezing drizzle",
+  61: "light rain",
+  63: "rain",
+  65: "heavy rain",
+  66: "freezing rain",
+  67: "heavy freezing rain",
+  71: "light snow",
+  73: "snow",
+  75: "heavy snow",
+  77: "snow grains",
+  80: "rain showers",
+  81: "rain showers",
+  82: "heavy rain showers",
+  85: "snow showers",
+  86: "heavy snow showers",
+  95: "thunderstorm",
+  96: "thunderstorm with hail",
+  99: "heavy thunderstorm with hail",
 };
 
 function finite(value: number | null | undefined): number | null {
@@ -69,6 +70,7 @@ function endpoint(activity: StravaActivity, host: string): URL | null {
     hourly: [
       "temperature_2m",
       "apparent_temperature",
+      "relative_humidity_2m",
       "precipitation",
       "weather_code",
       "wind_speed_10m",
@@ -96,6 +98,7 @@ async function requestWeather(activity: StravaActivity, host: string): Promise<A
     observedAt: body.hourly.time[index],
     temperatureC: temperature,
     apparentTemperatureC: finite(body.hourly.apparent_temperature?.[index]),
+    relativeHumidityPercent: finite(body.hourly.relative_humidity_2m?.[index]),
     precipitationMm: finite(body.hourly.precipitation?.[index]),
     windSpeedKmh: finite(body.hourly.wind_speed_10m?.[index]),
     windDirectionDegrees: finite(body.hourly.wind_direction_10m?.[index]),
@@ -110,7 +113,7 @@ export async function activityWeather(
 ): Promise<ActivityWeather | null> {
   if (!activity.start_latlng?.length) return null;
   const cached = await getCachedWeather(db, activity.id);
-  if (cached) return cached;
+  if (cached && cached.relativeHumidityPercent !== null) return cached;
 
   const startedAt = new Date(activity.start_date ?? activity.start_date_local).getTime();
   const recent = Number.isFinite(startedAt) && Date.now() - startedAt < 5 * 24 * 60 * 60 * 1000;
@@ -131,30 +134,47 @@ export async function activityWeather(
   return null;
 }
 
-function windDirection(value: number): string {
-  const labels = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"];
-  return labels[Math.round((((value % 360) + 360) % 360) / 45) % labels.length];
-}
-
 function rounded(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 export function weatherSummary(weather: ActivityWeather): string {
-  const details = [
-    weather.weatherCode === null ? null : weatherLabels[weather.weatherCode] ?? "天气未知",
-    `${rounded(weather.temperatureC)}°C`,
+  const temperatureFeel =
+    weather.temperatureC <= 5
+      ? "Cold"
+      : weather.temperatureC <= 22
+        ? "Cool"
+        : weather.temperatureC <= 29
+          ? "Warm"
+          : "Hot";
+  const condition =
+    weather.weatherCode === null ? "weather unavailable" : weatherLabels[weather.weatherCode] ?? "weather unavailable";
+  const conditionEmoji =
+    weather.weatherCode === null
+      ? "🌤️"
+      : weather.weatherCode <= 1
+        ? "☀️"
+        : weather.weatherCode <= 3
+          ? "☁️"
+          : weather.weatherCode >= 95
+            ? "⛈️"
+            : weather.weatherCode >= 71 && weather.weatherCode <= 86
+              ? "🌨️"
+              : weather.weatherCode >= 51
+                ? "🌧️"
+                : "🌫️";
+  return [
+    "🌤️ 天气信息 | Open-Meteo",
+    `${conditionEmoji} ${temperatureFeel}, ${condition}`,
+    `🌡️ 温度：${rounded(weather.temperatureC)}°C`,
     weather.apparentTemperatureC === null
       ? null
-      : `体感 ${rounded(weather.apparentTemperatureC)}°C`,
-    weather.windSpeedKmh === null
+      : `🧍 体感温度：${rounded(weather.apparentTemperatureC)}°C`,
+    weather.windSpeedKmh === null ? null : `💨 风速：${rounded(weather.windSpeedKmh)} km/h`,
+    weather.relativeHumidityPercent === null
       ? null
-      : `风 ${rounded(weather.windSpeedKmh)} km/h${
-          weather.windDirectionDegrees === null ? "" : ` ${windDirection(weather.windDirectionDegrees)}风`
-        }`,
-    weather.precipitationMm && weather.precipitationMm > 0
-      ? `降水 ${rounded(weather.precipitationMm)} mm`
-      : null,
-  ].filter(Boolean);
-  return `🌤️ ${details.join(" · ")}（Open-Meteo 估算）`;
+      : `💧 湿度：${Math.round(weather.relativeHumidityPercent)}%`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

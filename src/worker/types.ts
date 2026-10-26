@@ -64,6 +64,7 @@ export interface ActivityWeather {
   observedAt: string;
   temperatureC: number;
   apparentTemperatureC: number | null;
+  relativeHumidityPercent: number | null;
   precipitationMm: number | null;
   windSpeedKmh: number | null;
   windDirectionDegrees: number | null;
@@ -85,6 +86,8 @@ export interface SummaryMetrics {
   movingMinutes: number;
   elevationGain: number;
   averageSpeedKmh: number | null;
+  averagePower: number | null;
+  maxPower: number | null;
   normalizedPower: number | null;
   intensityFactor: number | null;
   trainingStressScore: number | null;
