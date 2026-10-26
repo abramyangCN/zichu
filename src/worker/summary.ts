@@ -1,4 +1,11 @@
-import type { GeneratedSummary, StravaActivity, StravaStreams, SummaryMetrics } from "./types";
+import type {
+  ActivityWeather,
+  GeneratedSummary,
+  StravaActivity,
+  StravaStreams,
+  SummaryMetrics,
+} from "./types";
+import { weatherSummary } from "./weather";
 
 export const SUMMARY_START = "<!-- izchu:summary:start -->";
 export const SUMMARY_END = "<!-- izchu:summary:end -->";
@@ -71,6 +78,7 @@ export function generateSummary(
   activity: StravaActivity,
   streams: StravaStreams,
   ftp: number | null,
+  weather: ActivityWeather | null = null,
 ): GeneratedSummary {
   const metrics = buildMetrics(activity, streams, ftp);
   const lines = [
@@ -90,12 +98,14 @@ export function generateSummary(
     metrics.workKilojoules ? `做功 ${metrics.workKilojoules} kJ` : null,
   ].filter(Boolean);
   if (body.length) lines.push(`🫀 ${body.join(" · ")}`);
+  if (weather) lines.push(weatherSummary(weather));
   lines.push("由 izchu 根据 Strava 活动数据生成");
   return {
     activityId: activity.id,
     activityName: activity.name,
     description: lines.join("\n"),
     metrics,
+    weather,
     source: "strava",
   };
 }

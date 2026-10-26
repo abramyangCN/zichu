@@ -23,6 +23,7 @@ import {
 } from "./strava";
 import { generateSummary, mergeSummary } from "./summary";
 import type { StravaWebhookEvent } from "./types";
+import { activityWeather } from "./weather";
 import { processWebhookEvent } from "./webhook";
 
 type AppContext = { Bindings: Env };
@@ -103,6 +104,7 @@ app.get("/api/status", async (c) => {
     writeEnabled: token?.scope.split(/[ ,]+/u).includes("activity:write") ?? false,
     ftp: settings?.ftp ?? null,
     maxHeartRate: settings?.maxHeartRate ?? null,
+    weatherEnabled: settings?.weatherEnabled ?? false,
     webhookEnabled: webhook?.enabled ?? false,
     webhookLastEventAt: webhook?.lastEventAt ?? null,
     webhookLastError: webhook?.lastError ?? null,
@@ -173,6 +175,7 @@ app.get("/api/settings", async (c) => {
     hasClientSecret: Boolean(settings?.stravaClientSecret),
     ftp: settings?.ftp ?? null,
     maxHeartRate: settings?.maxHeartRate ?? null,
+    weatherEnabled: settings?.weatherEnabled ?? false,
     callbackUrl: `${new URL(c.req.url).origin}/api/strava/callback`,
     callbackDomain: new URL(c.req.url).host,
   });
@@ -184,6 +187,7 @@ app.put("/api/settings", async (c) => {
     stravaClientSecret?: string;
     ftp?: number | string | null;
     maxHeartRate?: number | string | null;
+    weatherEnabled?: boolean;
   }>();
   const clientId = body.stravaClientId?.trim() ?? "";
   const existing = await getSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD);
@@ -193,11 +197,13 @@ app.put("/api/settings", async (c) => {
   }
   const ftp = optionalNumber(body.ftp, 50, 700);
   const maxHeartRate = optionalNumber(body.maxHeartRate, 80, 240);
+  const weatherEnabled = body.weatherEnabled ?? existing?.weatherEnabled ?? false;
   await saveSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD, {
     stravaClientId: clientId,
     stravaClientSecret: clientSecret,
     ftp,
     maxHeartRate,
+    weatherEnabled,
   });
   await audit(c.env.DB, "settings.updated", null, null);
   return c.json({ saved: true });
@@ -342,7 +348,10 @@ app.post("/api/strava/activities/:id/summary", async (c) => {
       activityBundle(c.env, activityId),
       getSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD),
     ]);
-    const summary = generateSummary(activity, streams, settings?.ftp ?? null);
+    const weather = settings?.weatherEnabled
+      ? await activityWeather(c.env.DB, activity)
+      : null;
+    const summary = generateSummary(activity, streams, settings?.ftp ?? null, weather);
     await saveSummary(c.env.DB, activity.id, activity.name, summary.description, false);
     return c.json(summary);
   } catch (error) {
@@ -362,7 +371,10 @@ app.post("/api/strava/activities/:id/write-summary", async (c) => {
       activityBundle(c.env, activityId),
       getSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD),
     ]);
-    const summary = generateSummary(activity, streams, settings?.ftp ?? null);
+    const weather = settings?.weatherEnabled
+      ? await activityWeather(c.env.DB, activity)
+      : null;
+    const summary = generateSummary(activity, streams, settings?.ftp ?? null, weather);
     const description = mergeSummary(activity.description, summary.description);
     await updateDescription(c.env, activityId, description);
     await Promise.all([

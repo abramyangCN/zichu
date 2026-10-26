@@ -10,6 +10,7 @@ import {
 import { activityBundle, updateDescription } from "./strava";
 import { generateSummary, isCyclingActivity, mergeSummary, removeSummary } from "./summary";
 import type { StravaWebhookEvent } from "./types";
+import { activityWeather } from "./weather";
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -73,7 +74,8 @@ export async function processWebhookEvent(env: Env, event: StravaWebhookEvent): 
       return;
     }
 
-    const summary = generateSummary(activity, streams, settings?.ftp ?? null);
+    const weather = settings?.weatherEnabled ? await activityWeather(env.DB, activity) : null;
+    const summary = generateSummary(activity, streams, settings?.ftp ?? null, weather);
     const description = mergeSummary(activity.description, summary.description);
     if (description === (activity.description ?? "").trim()) {
       await audit(env.DB, "webhook.summary.unchanged", activity.id, activity.name);

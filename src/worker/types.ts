@@ -3,6 +3,7 @@ export interface IzchuSettings {
   stravaClientSecret: string;
   ftp: number | null;
   maxHeartRate: number | null;
+  weatherEnabled: boolean;
 }
 
 export interface StoredToken {
@@ -38,6 +39,8 @@ export interface StravaActivity {
   sport_type?: string;
   type?: string;
   start_date_local: string;
+  start_date?: string;
+  start_latlng?: [number, number] | null;
   distance: number;
   moving_time: number;
   elapsed_time: number;
@@ -54,6 +57,18 @@ export interface StravaActivity {
   average_temp?: number;
   description?: string | null;
   device_name?: string;
+}
+
+export interface ActivityWeather {
+  activityId: number;
+  observedAt: string;
+  temperatureC: number;
+  apparentTemperatureC: number | null;
+  precipitationMm: number | null;
+  windSpeedKmh: number | null;
+  windDirectionDegrees: number | null;
+  weatherCode: number | null;
+  source: "open-meteo";
 }
 
 export interface StravaStream {
@@ -84,5 +99,6 @@ export interface GeneratedSummary {
   activityName: string;
   description: string;
   metrics: SummaryMetrics;
+  weather: ActivityWeather | null;
   source: "strava";
 }

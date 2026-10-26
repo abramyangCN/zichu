@@ -4,7 +4,7 @@
 
 izchu 是一个面向 Strava 用户的开源、单用户、自托管活动摘要工具。每个人使用自己的 Strava API 应用，把服务部署在自己的 Cloudflare 账户中；活动与凭据不经过公共 izchu 服务器。
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/abramyangCN/izchu)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/abramyangCN/zichu)
 
 ## 当前版本做什么
 
@@ -15,6 +15,7 @@ izchu 是一个面向 Strava 用户的开源、单用户、自托管活动摘要
 - Client Secret、access token 与 refresh token 使用管理员密码派生的密钥加密后存入 D1。
 - 自动刷新过期的 Strava access token。
 - 可选启用 Strava Webhook：新骑行或标题、类型、隐私变化时自动刷新摘要。
+- 可选使用 Open-Meteo 为摘要补充活动开始时的天气；不需要 API Key，坐标降至约 1 公里精度后发送，结果缓存在自己的 D1。
 
 当前刻意不包含 Garmin Connect 和轮询定时任务。若 Garmin 码表已经把数据同步给 Strava，izchu 能使用 Strava API 实际暴露出来的字段；Strava 未提供的 Garmin 专有指标不会凭空出现。
 
@@ -35,7 +36,8 @@ izchu 是一个面向 Strava 用户的开源、单用户、自托管活动摘要
 4. 打开部署后的网址，页面会显示 Strava 所需的回调域名。
 5. 在 [Strava API Settings](https://www.strava.com/settings/api) 创建应用，将该域名填入 **Authorization Callback Domain**。
 6. 回到 izchu 填写 Client ID、Client Secret 和可选 FTP，然后点击 **连接 Strava**。
-7. 如需活动上传后自动写入摘要，在仪表盘中点击 **启用自动摘要**；izchu 会为这个 Strava API 应用创建唯一的 Webhook 订阅。
+7. 如需天气摘要，在设置中主动勾选；天气数据来自 [Open-Meteo](https://open-meteo.com/)，并按其 CC BY 4.0 数据许可进行来源标注。
+8. 如需活动上传后自动写入摘要，在仪表盘中点击 **启用自动摘要**；izchu 会为这个 Strava API 应用创建唯一的 Webhook 订阅。
 
 Strava 应用需要允许 `read`、`activity:read_all` 和 `activity:write`。写权限只在你点击并确认“写入 Strava”时使用。
 
@@ -83,6 +85,7 @@ npm run deploy
 - Webhook 使用随机私密回调路径，并校验订阅 ID 与 Strava 运动员 ID；回调会先快速确认，再在 Worker 后台处理。
 - Strava 凭据不会进入前端代码或 Git。
 - D1 会保存摘要与最小审计记录，不保存完整逐秒活动副本。
+- 天气功能默认关闭；启用后只向 Open-Meteo 发送降精度的起点坐标、活动日期与小时，不发送姓名、活动名称或 Strava 凭据。
 
 ## 产品原则
 

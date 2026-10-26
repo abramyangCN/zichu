@@ -8,7 +8,7 @@ import {
   SUMMARY_END,
   SUMMARY_START,
 } from "../src/worker/summary";
-import type { StravaActivity, StravaStreams } from "../src/worker/types";
+import type { ActivityWeather, StravaActivity, StravaStreams } from "../src/worker/types";
 
 const activity: StravaActivity = {
   id: 42,
@@ -29,6 +29,18 @@ const streams: StravaStreams = {
   watts: { type: "watts", data: Array.from({ length: 90 }, () => 200), original_size: 90, resolution: "high" },
 };
 
+const weather: ActivityWeather = {
+  activityId: 42,
+  observedAt: "2026-10-23T14:00",
+  temperatureC: 18.2,
+  apparentTemperatureC: 17.4,
+  precipitationMm: 0.3,
+  windSpeedKmh: 12.6,
+  windDirectionDegrees: 45,
+  weatherCode: 2,
+  source: "open-meteo",
+};
+
 describe("normalizedPower", () => {
   it("returns the steady power for a steady effort", () => {
     expect(normalizedPower(Array.from({ length: 120 }, () => 225))).toBe(225);
@@ -47,6 +59,15 @@ describe("generateSummary", () => {
     expect(result.metrics.trainingStressScore).toBe(96);
     expect(result.description).toContain("40.1 km");
     expect(result.description).toContain("NP 200 W");
+  });
+
+  it("includes optional cached weather with attribution", () => {
+    const result = generateSummary(activity, streams, 250, weather);
+    expect(result.description).toContain("多云");
+    expect(result.description).toContain("18.2°C");
+    expect(result.description).toContain("东北风");
+    expect(result.description).toContain("Open-Meteo 估算");
+    expect(result.weather).toEqual(weather);
   });
 });
 

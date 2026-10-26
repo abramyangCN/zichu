@@ -1,11 +1,18 @@
 import { decrypt, encrypt } from "./crypto";
-import type { IzchuSettings, StoredToken, StravaWebhookEvent, WebhookSettings } from "./types";
+import type {
+  ActivityWeather,
+  IzchuSettings,
+  StoredToken,
+  StravaWebhookEvent,
+  WebhookSettings,
+} from "./types";
 
 interface SettingsRow {
   strava_client_id: string;
   strava_client_secret: string;
   ftp: number | null;
   max_heart_rate: number | null;
+  weather_enabled: number;
 }
 
 interface TokenRow {
@@ -27,7 +34,9 @@ interface WebhookRow {
 
 export async function getSettings(db: D1Database, secret: string): Promise<IzchuSettings | null> {
   const row = await db
-    .prepare("SELECT strava_client_id, strava_client_secret, ftp, max_heart_rate FROM settings WHERE id = 1")
+    .prepare(
+      "SELECT strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled FROM settings WHERE id = 1",
+    )
     .first<SettingsRow>();
   if (!row) return null;
   return {
@@ -35,6 +44,7 @@ export async function getSettings(db: D1Database, secret: string): Promise<Izchu
     stravaClientSecret: await decrypt(secret, row.strava_client_secret),
     ftp: row.ftp,
     maxHeartRate: row.max_heart_rate,
+    weatherEnabled: row.weather_enabled === 1,
   };
 }
 
@@ -46,16 +56,92 @@ export async function saveSettings(
   const encryptedSecret = await encrypt(secret, value.stravaClientSecret);
   await db
     .prepare(
-      `INSERT INTO settings (id, strava_client_id, strava_client_secret, ftp, max_heart_rate)
-       VALUES (1, ?, ?, ?, ?)
+      `INSERT INTO settings (id, strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled)
+       VALUES (1, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          strava_client_id = excluded.strava_client_id,
          strava_client_secret = excluded.strava_client_secret,
          ftp = excluded.ftp,
          max_heart_rate = excluded.max_heart_rate,
+         weather_enabled = excluded.weather_enabled,
          updated_at = CURRENT_TIMESTAMP`,
     )
-    .bind(value.stravaClientId, encryptedSecret, value.ftp, value.maxHeartRate)
+    .bind(
+      value.stravaClientId,
+      encryptedSecret,
+      value.ftp,
+      value.maxHeartRate,
+      value.weatherEnabled ? 1 : 0,
+    )
+    .run();
+}
+
+interface WeatherRow {
+  activity_id: number;
+  observed_at: string;
+  temperature_c: number;
+  apparent_temperature_c: number | null;
+  precipitation_mm: number | null;
+  wind_speed_kmh: number | null;
+  wind_direction_degrees: number | null;
+  weather_code: number | null;
+}
+
+export async function getCachedWeather(
+  db: D1Database,
+  activityId: number,
+): Promise<ActivityWeather | null> {
+  const row = await db
+    .prepare(
+      `SELECT activity_id, observed_at, temperature_c, apparent_temperature_c,
+              precipitation_mm, wind_speed_kmh, wind_direction_degrees, weather_code
+       FROM activity_weather WHERE activity_id = ?`,
+    )
+    .bind(activityId)
+    .first<WeatherRow>();
+  if (!row) return null;
+  return {
+    activityId: row.activity_id,
+    observedAt: row.observed_at,
+    temperatureC: row.temperature_c,
+    apparentTemperatureC: row.apparent_temperature_c,
+    precipitationMm: row.precipitation_mm,
+    windSpeedKmh: row.wind_speed_kmh,
+    windDirectionDegrees: row.wind_direction_degrees,
+    weatherCode: row.weather_code,
+    source: "open-meteo",
+  };
+}
+
+export async function saveWeather(db: D1Database, weather: ActivityWeather): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO activity_weather
+       (activity_id, observed_at, temperature_c, apparent_temperature_c, precipitation_mm,
+        wind_speed_kmh, wind_direction_degrees, weather_code, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(activity_id) DO UPDATE SET
+         observed_at = excluded.observed_at,
+         temperature_c = excluded.temperature_c,
+         apparent_temperature_c = excluded.apparent_temperature_c,
+         precipitation_mm = excluded.precipitation_mm,
+         wind_speed_kmh = excluded.wind_speed_kmh,
+         wind_direction_degrees = excluded.wind_direction_degrees,
+         weather_code = excluded.weather_code,
+         source = excluded.source,
+         updated_at = CURRENT_TIMESTAMP`,
+    )
+    .bind(
+      weather.activityId,
+      weather.observedAt,
+      weather.temperatureC,
+      weather.apparentTemperatureC,
+      weather.precipitationMm,
+      weather.windSpeedKmh,
+      weather.windDirectionDegrees,
+      weather.weatherCode,
+      weather.source,
+    )
     .run();
 }
 
