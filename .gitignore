@@ -1,0 +1,12 @@
+.env
+.dev.vars
+.DS_Store
+.wrangler/
+dist/
+node_modules/
+coverage/
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+data/

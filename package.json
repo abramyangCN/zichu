@@ -1,0 +1,45 @@
+{
+  "name": "zichu",
+  "version": "0.2.0",
+  "private": true,
+  "cloudflare": {
+    "bindings": {
+      "IZCHU_ADMIN_PASSWORD": {
+        "description": "用于解锁 izchu 并加密保存在 D1 中的 Strava 凭据，请设置一个独立的长密码"
+      }
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "cf-typegen": "wrangler types",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "check": "npm run lint && npm run test && npm run build"
+  },
+  "dependencies": {
+    "hono": "^4.10.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.13.19",
+    "@eslint/js": "^9.38.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "eslint": "^9.38.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.4.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.2",
+    "vite": "^7.1.12",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.45.0"
+  }
+}

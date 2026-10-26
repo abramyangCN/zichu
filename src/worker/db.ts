@@ -1,0 +1,132 @@
+import { decrypt, encrypt } from "./crypto";
+import type { IzchuSettings, StoredToken } from "./types";
+
+interface SettingsRow {
+  strava_client_id: string;
+  strava_client_secret: string;
+  ftp: number | null;
+  max_heart_rate: number | null;
+}
+
+interface TokenRow {
+  athlete_id: number;
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+  scope: string;
+  athlete_name: string | null;
+}
+
+export async function getSettings(db: D1Database, secret: string): Promise<IzchuSettings | null> {
+  const row = await db
+    .prepare("SELECT strava_client_id, strava_client_secret, ftp, max_heart_rate FROM settings WHERE id = 1")
+    .first<SettingsRow>();
+  if (!row) return null;
+  return {
+    stravaClientId: row.strava_client_id,
+    stravaClientSecret: await decrypt(secret, row.strava_client_secret),
+    ftp: row.ftp,
+    maxHeartRate: row.max_heart_rate,
+  };
+}
+
+export async function saveSettings(
+  db: D1Database,
+  secret: string,
+  value: IzchuSettings,
+): Promise<void> {
+  const encryptedSecret = await encrypt(secret, value.stravaClientSecret);
+  await db
+    .prepare(
+      `INSERT INTO settings (id, strava_client_id, strava_client_secret, ftp, max_heart_rate)
+       VALUES (1, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         strava_client_id = excluded.strava_client_id,
+         strava_client_secret = excluded.strava_client_secret,
+         ftp = excluded.ftp,
+         max_heart_rate = excluded.max_heart_rate,
+         updated_at = CURRENT_TIMESTAMP`,
+    )
+    .bind(value.stravaClientId, encryptedSecret, value.ftp, value.maxHeartRate)
+    .run();
+}
+
+export async function getToken(db: D1Database, secret: string): Promise<StoredToken | null> {
+  const row = await db
+    .prepare(
+      `SELECT athlete_id, access_token, refresh_token, expires_at, scope, athlete_name
+       FROM oauth_tokens ORDER BY updated_at DESC LIMIT 1`,
+    )
+    .first<TokenRow>();
+  if (!row) return null;
+  return {
+    athleteId: row.athlete_id,
+    accessToken: await decrypt(secret, row.access_token),
+    refreshToken: await decrypt(secret, row.refresh_token),
+    expiresAt: row.expires_at,
+    scope: row.scope,
+    athleteName: row.athlete_name,
+  };
+}
+
+export async function saveToken(db: D1Database, secret: string, token: StoredToken): Promise<void> {
+  const [accessToken, refreshToken] = await Promise.all([
+    encrypt(secret, token.accessToken),
+    encrypt(secret, token.refreshToken),
+  ]);
+  await db
+    .prepare(
+      `INSERT INTO oauth_tokens
+       (athlete_id, access_token, refresh_token, expires_at, scope, athlete_name)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(athlete_id) DO UPDATE SET
+         access_token = excluded.access_token,
+         refresh_token = excluded.refresh_token,
+         expires_at = excluded.expires_at,
+         scope = excluded.scope,
+         athlete_name = excluded.athlete_name,
+         updated_at = CURRENT_TIMESTAMP`,
+    )
+    .bind(
+      token.athleteId,
+      accessToken,
+      refreshToken,
+      token.expiresAt,
+      token.scope,
+      token.athleteName,
+    )
+    .run();
+}
+
+export async function clearTokens(db: D1Database): Promise<void> {
+  await db.prepare("DELETE FROM oauth_tokens").run();
+}
+
+export async function saveSummary(
+  db: D1Database,
+  activityId: number,
+  activityName: string,
+  summary: string,
+  writtenToStrava: boolean,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO summary_history
+       (activity_id, activity_name, summary, written_to_strava)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .bind(activityId, activityName, summary, writtenToStrava ? 1 : 0)
+    .run();
+}
+
+export async function audit(
+  db: D1Database,
+  action: string,
+  activityId: number | null,
+  detail: string | null,
+): Promise<void> {
+  await db
+    .prepare("INSERT INTO audit_log (action, activity_id, detail) VALUES (?, ?, ?)")
+    .bind(action, activityId, detail)
+    .run();
+}
