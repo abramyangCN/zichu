@@ -3,6 +3,20 @@ import type { GeneratedSummary, StravaActivity, StravaStreams, SummaryMetrics } 
 export const SUMMARY_START = "<!-- izchu:summary:start -->";
 export const SUMMARY_END = "<!-- izchu:summary:end -->";
 
+const cyclingTypes = new Set([
+  "Ride",
+  "VirtualRide",
+  "EBikeRide",
+  "MountainBikeRide",
+  "GravelRide",
+  "Velomobile",
+  "Handcycle",
+]);
+
+export function isCyclingActivity(activity: Pick<StravaActivity, "sport_type" | "type">): boolean {
+  return cyclingTypes.has(activity.sport_type ?? activity.type ?? "");
+}
+
 function round(value: number, digits = 1): number {
   const multiplier = 10 ** digits;
   return Math.round(value * multiplier) / multiplier;
@@ -97,4 +111,14 @@ export function mergeSummary(existing: string | null | undefined, summary: strin
     return [before, block, after].filter(Boolean).join("\n\n");
   }
   return current ? `${current}\n\n${block}` : block;
+}
+
+export function removeSummary(existing: string | null | undefined): string {
+  const current = (existing ?? "").trim();
+  const start = current.indexOf(SUMMARY_START);
+  const end = current.indexOf(SUMMARY_END);
+  if (start < 0 || end < start) return current;
+  const before = current.slice(0, start).trimEnd();
+  const after = current.slice(end + SUMMARY_END.length).trimStart();
+  return [before, after].filter(Boolean).join("\n\n");
 }

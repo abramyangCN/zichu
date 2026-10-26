@@ -3,6 +3,7 @@ import type { StoredToken, StravaActivity, StravaStreams } from "./types";
 
 const STRAVA_API = "https://www.strava.com/api/v3";
 const STRAVA_OAUTH = "https://www.strava.com/oauth";
+const STRAVA_SUBSCRIPTIONS = `${STRAVA_API}/push_subscriptions`;
 
 interface TokenResponse {
   access_token: string;
@@ -10,6 +11,13 @@ interface TokenResponse {
   expires_at: number;
   scope?: string;
   athlete?: { id: number; firstname?: string; lastname?: string };
+}
+
+export interface PushSubscription {
+  id: number;
+  callback_url?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
@@ -128,4 +136,50 @@ export async function updateDescription(
     method: "PUT",
     body: JSON.stringify({ description }),
   });
+}
+
+export async function listPushSubscriptions(env: Env): Promise<PushSubscription[]> {
+  const settings = await getSettings(env.DB, env.IZCHU_ADMIN_PASSWORD);
+  if (!settings) throw new Error("请先配置 Strava API");
+  const query = new URLSearchParams({
+    client_id: settings.stravaClientId,
+    client_secret: settings.stravaClientSecret,
+  });
+  return responseJson<PushSubscription[]>(await fetch(`${STRAVA_SUBSCRIPTIONS}?${query}`));
+}
+
+export async function createPushSubscription(
+  env: Env,
+  callbackUrl: string,
+  verifyToken: string,
+): Promise<PushSubscription> {
+  const settings = await getSettings(env.DB, env.IZCHU_ADMIN_PASSWORD);
+  if (!settings) throw new Error("请先配置 Strava API");
+  return responseJson<PushSubscription>(
+    await fetch(STRAVA_SUBSCRIPTIONS, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: settings.stravaClientId,
+        client_secret: settings.stravaClientSecret,
+        callback_url: callbackUrl,
+        verify_token: verifyToken,
+      }),
+    }),
+  );
+}
+
+export async function deletePushSubscription(env: Env, subscriptionId: number): Promise<void> {
+  const settings = await getSettings(env.DB, env.IZCHU_ADMIN_PASSWORD);
+  if (!settings) throw new Error("请先配置 Strava API");
+  const query = new URLSearchParams({
+    client_id: settings.stravaClientId,
+    client_secret: settings.stravaClientSecret,
+  });
+  const response = await fetch(`${STRAVA_SUBSCRIPTIONS}/${subscriptionId}?${query}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 404) {
+    await responseJson(response);
+  }
 }

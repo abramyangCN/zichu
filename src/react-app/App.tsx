@@ -8,6 +8,9 @@ type Status = {
   athleteName?: string | null;
   writeEnabled?: boolean;
   ftp?: number | null;
+  webhookEnabled?: boolean;
+  webhookLastEventAt?: string | null;
+  webhookLastError?: string | null;
 };
 
 type Settings = {
@@ -50,12 +53,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function formatDate(value: string) {
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(value)
+    ? `${value.replace(" ", "T")}Z`
+    : value;
   return new Intl.DateTimeFormat("zh-CN", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(new Date(normalized));
 }
 
 function rideType(activity: Activity) {
@@ -155,6 +161,30 @@ export default function App() {
     }
   }
 
+  async function toggleWebhook() {
+    if (!status?.connected) return;
+    const currentlyEnabled = Boolean(status.webhookEnabled);
+    if (
+      !currentlyEnabled &&
+      !window.confirm("启用后，新骑行或 Strava 通知的骑行更新会自动生成摘要并写入活动描述。确认启用？")
+    ) {
+      return;
+    }
+    setBusy("webhook");
+    setMessage("");
+    try {
+      await api("/api/strava/webhook-subscription", {
+        method: currentlyEnabled ? "DELETE" : "POST",
+      });
+      setMessage(currentlyEnabled ? "自动摘要已关闭。" : "自动摘要已启用，下一次骑行事件会自动处理。");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "自动摘要设置失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
   if (!status) return <main className="center"><div className="loader" /><p>正在唤醒 izchu…</p></main>;
   if (!status.ready) return <main className="center"><Brand /><section className="panel narrow"><span className="eyebrow">还差一步</span><h1>设置管理员密码</h1><p>在 Cloudflare 项目的变量和机密中添加 <code>IZCHU_ADMIN_PASSWORD</code>，然后重新部署。</p></section></main>;
   if (!status.authenticated) return <main className="center login"><Brand /><section className="panel narrow"><span className="eyebrow">私有骑行空间</span><h1>欢迎回来</h1><p>用部署时设置的密码解锁。你的 Strava 凭据只保存在自己的 Cloudflare 账户中。</p><form onSubmit={login}><label>管理员密码<input name="password" type="password" autoComplete="current-password" required autoFocus /></label><button className="primary" disabled={busy === "login"}>{busy ? "解锁中…" : "解锁 izchu"}</button></form>{message && <p className="notice error">{message}</p>}</section></main>;
@@ -163,10 +193,11 @@ export default function App() {
     <div className="app-shell">
       <header><Brand /><nav><span className="privacy"><i /> 数据只属于你</span><button className="text-button" onClick={async () => { await api("/api/auth/logout", { method: "POST" }); location.reload(); }}>退出</button></nav></header>
       <main className="content">
-        <section className="hero"><div><span className="eyebrow">STRAVA · PRIVATE BY DEFAULT</span><h1>{status.connected ? `${status.athleteName || "骑手"}，今天也去骑吧。` : "把训练数据，留在自己手里。"}</h1><p>{status.connected ? "选择一次活动，先预览 izchu 生成的数据摘要，再决定是否写入 Strava。" : "连接自己的 Strava API。没有订阅服务，没有共享数据库，也没有自动改动。"}</p></div><div className="hero-mark">i<span>z</span></div></section>
+        <section className="hero"><div><span className="eyebrow">STRAVA · PRIVATE BY DEFAULT</span><h1>{status.connected ? `${status.athleteName || "骑手"}，今天也去骑吧。` : "把训练数据，留在自己手里。"}</h1><p>{status.connected ? "手动预览每次摘要，或者按你的选择启用自动同步。" : "连接自己的 Strava API。没有订阅服务，没有共享数据库，也不会未经允许自动改动。"}</p></div><div className="hero-mark">i<span>z</span></div></section>
         {message && <div className="notice">{message}</div>}
         {!status.configured || !status.connected ? <Setup settings={settings} status={status} busy={busy} onSave={saveSettings} /> : <>
-          <section className="stats"><div><span>连接状态</span><strong className="good">● 已连接</strong></div><div><span>最近活动</span><strong>{activities.length}</strong></div><div><span>摘要方式</span><strong>手动确认</strong></div><div><span>训练 FTP</span><strong>{status.ftp ? `${status.ftp} W` : "未设置"}</strong></div></section>
+          <section className="stats"><div><span>连接状态</span><strong className="good">● 已连接</strong></div><div><span>最近活动</span><strong>{activities.length}</strong></div><div><span>摘要方式</span><strong>{status.webhookEnabled ? "自动同步" : "手动确认"}</strong></div><div><span>训练 FTP</span><strong>{status.ftp ? `${status.ftp} W` : "未设置"}</strong></div></section>
+          <section className={`automation-card ${status.webhookEnabled ? "enabled" : ""}`}><div className="automation-status"><span className="pulse" /><div><span className="eyebrow">STRAVA WEBHOOK</span><h2>自动更新骑行摘要</h2><p>{status.webhookEnabled ? "已监听新骑行以及标题、类型和隐私变化。摘要发生变化时会自动写回 Strava。" : "启用后无需刷新页面；Strava 有新的骑行事件时，izchu 会在后台生成并更新摘要。"}</p>{status.webhookLastEventAt && <small>最近事件：{formatDate(status.webhookLastEventAt)}</small>}{status.webhookLastError && <small className="webhook-error">最近错误：{status.webhookLastError}</small>}</div></div><button className={status.webhookEnabled ? "secondary" : "primary"} disabled={busy === "webhook" || !status.writeEnabled} onClick={() => void toggleWebhook()}>{busy === "webhook" ? "处理中…" : status.webhookEnabled ? "关闭自动摘要" : "启用自动摘要"}</button></section>
           <section className="section-heading"><div><span className="eyebrow">RECENT RIDES</span><h2>最近活动</h2></div><button className="secondary" onClick={() => void refresh()}>刷新</button></section>
           <section className="ride-list">{activities.length === 0 ? <div className="empty">Strava 暂时没有返回活动。</div> : activities.map((activity) => <article className="ride" key={activity.id}><div className="ride-icon">↗</div><div className="ride-main"><div className="ride-meta"><span>{rideType(activity)}</span><time>{formatDate(activity.start_date_local)}</time></div><h3>{activity.name}</h3><div className="ride-numbers"><span><b>{(activity.distance / 1000).toFixed(1)}</b> km</span><span><b>{Math.round(activity.moving_time / 60)}</b> min</span><span><b>{Math.round(activity.total_elevation_gain)}</b> m</span>{activity.average_watts ? <span><b>{Math.round(activity.average_watts)}</b> W</span> : null}</div></div><button className="primary compact" disabled={Boolean(busy)} onClick={() => void makeSummary(activity)}>{busy === `summary-${activity.id}` ? "生成中…" : "生成摘要"}</button></article>)}</section>
           <details className="settings-drawer"><summary>调整 Strava 与训练设置</summary><Setup settings={settings} status={status} busy={busy} onSave={saveSettings} compact /></details>

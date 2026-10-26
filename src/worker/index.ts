@@ -1,9 +1,29 @@
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Hono } from "hono";
-import { audit, clearTokens, getSettings, getToken, saveSettings, saveSummary } from "./db";
+import {
+  audit,
+  clearTokens,
+  disableWebhook,
+  getSettings,
+  getToken,
+  getWebhookSettings,
+  saveSettings,
+  saveSummary,
+  saveWebhookSettings,
+} from "./db";
 import { createSession, safeEqual, verifySession } from "./crypto";
-import { activities, activityBundle, exchangeCode, updateDescription } from "./strava";
+import {
+  activities,
+  activityBundle,
+  createPushSubscription,
+  deletePushSubscription,
+  exchangeCode,
+  listPushSubscriptions,
+  updateDescription,
+} from "./strava";
 import { generateSummary, mergeSummary } from "./summary";
+import type { StravaWebhookEvent } from "./types";
+import { processWebhookEvent } from "./webhook";
 
 type AppContext = { Bindings: Env };
 const app = new Hono<AppContext>();
@@ -21,8 +41,33 @@ function optionalNumber(value: unknown, minimum: number, maximum: number): numbe
   return parsed;
 }
 
+function randomToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+function isWebhookEvent(value: unknown): value is StravaWebhookEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Partial<StravaWebhookEvent>;
+  return (
+    ["activity", "athlete"].includes(event.object_type ?? "") &&
+    ["create", "update", "delete"].includes(event.aspect_type ?? "") &&
+    Number.isSafeInteger(event.object_id) &&
+    Number.isSafeInteger(event.owner_id) &&
+    Number.isSafeInteger(event.subscription_id) &&
+    Number.isSafeInteger(event.event_time)
+  );
+}
+
 app.use("/api/*", async (c, next) => {
-  if (["/api/status", "/api/auth/login"].includes(c.req.path)) return next();
+  if (
+    ["/api/status", "/api/auth/login"].includes(c.req.path) ||
+    c.req.path.startsWith("/api/strava/webhook/")
+  ) {
+    return next();
+  }
   if (!c.env.IZCHU_ADMIN_PASSWORD) return c.json({ error: "部署时尚未配置 IZCHU_ADMIN_PASSWORD" }, 503);
   const authenticated = await verifySession(
     c.env.IZCHU_ADMIN_PASSWORD,
@@ -44,9 +89,10 @@ app.get("/api/status", async (c) => {
   if (!authenticated) {
     return c.json({ ready: hasPassword, authenticated: false, configured: false, connected: false });
   }
-  const [settings, token] = await Promise.all([
+  const [settings, token, webhook] = await Promise.all([
     getSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD),
     getToken(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD),
+    getWebhookSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD),
   ]);
   return c.json({
     ready: true,
@@ -57,7 +103,45 @@ app.get("/api/status", async (c) => {
     writeEnabled: token?.scope.split(/[ ,]+/u).includes("activity:write") ?? false,
     ftp: settings?.ftp ?? null,
     maxHeartRate: settings?.maxHeartRate ?? null,
+    webhookEnabled: webhook?.enabled ?? false,
+    webhookLastEventAt: webhook?.lastEventAt ?? null,
+    webhookLastError: webhook?.lastError ?? null,
   });
+});
+
+app.get("/api/strava/webhook/:token", async (c) => {
+  if (!c.env.IZCHU_ADMIN_PASSWORD) return c.json({ error: "Webhook 尚未配置" }, 503);
+  const webhook = await getWebhookSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD);
+  const suppliedToken = c.req.param("token");
+  const verifyToken = c.req.query("hub.verify_token") ?? "";
+  const mode = c.req.query("hub.mode");
+  const challenge = c.req.query("hub.challenge");
+  const valid =
+    webhook?.enabled &&
+    mode === "subscribe" &&
+    challenge &&
+    (await safeEqual(suppliedToken, webhook.callbackToken)) &&
+    (await safeEqual(verifyToken, webhook.callbackToken));
+  if (!valid) return c.json({ error: "Webhook 验证失败" }, 403);
+  return c.json({ "hub.challenge": challenge });
+});
+
+app.post("/api/strava/webhook/:token", async (c) => {
+  if (!c.env.IZCHU_ADMIN_PASSWORD) return c.json({ error: "Webhook 尚未配置" }, 503);
+  const webhook = await getWebhookSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD);
+  if (
+    !webhook?.enabled ||
+    !(await safeEqual(c.req.param("token"), webhook.callbackToken))
+  ) {
+    return c.json({ error: "Webhook 验证失败" }, 403);
+  }
+  const event = await c.req.json<unknown>().catch(() => null);
+  if (!isWebhookEvent(event)) return c.json({ error: "Webhook 内容无效" }, 400);
+  if (webhook.subscriptionId && event.subscription_id !== webhook.subscriptionId) {
+    return c.json({ error: "Webhook 订阅不匹配" }, 403);
+  }
+  c.executionCtx.waitUntil(processWebhookEvent(c.env, event));
+  return c.json({ received: true });
 });
 
 app.post("/api/auth/login", async (c) => {
@@ -163,6 +247,81 @@ app.post("/api/strava/disconnect", async (c) => {
   await clearTokens(c.env.DB);
   await audit(c.env.DB, "strava.disconnected", null, null);
   return c.json({ connected: false });
+});
+
+app.post("/api/strava/webhook-subscription", async (c) => {
+  const origin = new URL(c.req.url).origin;
+  const url = new URL(origin);
+  if (url.protocol !== "https:" || ["localhost", "127.0.0.1"].includes(url.hostname)) {
+    return c.json({ error: "Strava Webhook 只能连接公开的 HTTPS 部署地址" }, 409);
+  }
+  const token = await getToken(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD);
+  if (!token?.scope.split(/[ ,]+/u).includes("activity:write")) {
+    return c.json({ error: "请先授权 Strava 的 activity:write 权限" }, 409);
+  }
+
+  const stored = await getWebhookSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD);
+  if (stored?.enabled && stored.subscriptionId) {
+    return c.json({ enabled: true, subscriptionId: stored.subscriptionId });
+  }
+  const callbackToken = stored?.callbackToken || randomToken();
+  const callbackUrl = `${origin}/api/strava/webhook/${callbackToken}`;
+
+  try {
+    const subscriptions = await listPushSubscriptions(c.env);
+    const matching = subscriptions.find((subscription) => subscription.callback_url === callbackUrl);
+    if (matching) {
+      await saveWebhookSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD, {
+        subscriptionId: matching.id,
+        callbackToken,
+        enabled: true,
+      });
+      return c.json({ enabled: true, subscriptionId: matching.id });
+    }
+    if (subscriptions.length > 0) {
+      return c.json(
+        { error: "这个 Strava API 应用已有其他 Webhook 订阅，请先删除旧订阅再启用" },
+        409,
+      );
+    }
+
+    await saveWebhookSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD, {
+      subscriptionId: null,
+      callbackToken,
+      enabled: true,
+    });
+    const subscription = await createPushSubscription(c.env, callbackUrl, callbackToken);
+    await saveWebhookSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD, {
+      subscriptionId: subscription.id,
+      callbackToken,
+      enabled: true,
+    });
+    await audit(c.env.DB, "webhook.enabled", null, String(subscription.id));
+    return c.json({ enabled: true, subscriptionId: subscription.id });
+  } catch (error) {
+    await disableWebhook(c.env.DB);
+    return c.json(
+      { error: error instanceof Error ? error.message : "Webhook 启用失败" },
+      502,
+    );
+  }
+});
+
+app.delete("/api/strava/webhook-subscription", async (c) => {
+  const webhook = await getWebhookSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD);
+  try {
+    if (webhook?.subscriptionId) {
+      await deletePushSubscription(c.env, webhook.subscriptionId);
+    }
+    await disableWebhook(c.env.DB);
+    await audit(c.env.DB, "webhook.disabled", null, webhook?.subscriptionId?.toString() ?? null);
+    return c.json({ enabled: false });
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : "Webhook 关闭失败" },
+      502,
+    );
+  }
 });
 
 app.get("/api/strava/activities", async (c) => {

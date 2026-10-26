@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { generateSummary, mergeSummary, normalizedPower, SUMMARY_END, SUMMARY_START } from "../src/worker/summary";
+import {
+  generateSummary,
+  isCyclingActivity,
+  mergeSummary,
+  normalizedPower,
+  removeSummary,
+  SUMMARY_END,
+  SUMMARY_START,
+} from "../src/worker/summary";
 import type { StravaActivity, StravaStreams } from "../src/worker/types";
 
 const activity: StravaActivity = {
@@ -56,5 +64,23 @@ describe("mergeSummary", () => {
     expect(second).toContain("我的备注");
     expect(second).not.toContain("旧摘要");
     expect(second.match(new RegExp(SUMMARY_START, "g"))).toHaveLength(1);
+  });
+
+  it("removes only the izchu block when an activity is no longer cycling", () => {
+    const withSummary = mergeSummary("保留我的备注", "骑行摘要");
+    expect(removeSummary(withSummary)).toBe("保留我的备注");
+  });
+});
+
+describe("isCyclingActivity", () => {
+  it("accepts Strava cycling sport types", () => {
+    expect(isCyclingActivity({ sport_type: "Ride" })).toBe(true);
+    expect(isCyclingActivity({ sport_type: "GravelRide" })).toBe(true);
+    expect(isCyclingActivity({ sport_type: "VirtualRide" })).toBe(true);
+  });
+
+  it("rejects non-cycling activities", () => {
+    expect(isCyclingActivity({ sport_type: "Swim" })).toBe(false);
+    expect(isCyclingActivity({ sport_type: "Run" })).toBe(false);
   });
 });

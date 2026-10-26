@@ -1,5 +1,5 @@
 import { decrypt, encrypt } from "./crypto";
-import type { IzchuSettings, StoredToken } from "./types";
+import type { IzchuSettings, StoredToken, StravaWebhookEvent, WebhookSettings } from "./types";
 
 interface SettingsRow {
   strava_client_id: string;
@@ -15,6 +15,14 @@ interface TokenRow {
   expires_at: number;
   scope: string;
   athlete_name: string | null;
+}
+
+interface WebhookRow {
+  subscription_id: number | null;
+  callback_token: string;
+  enabled: number;
+  last_event_at: string | null;
+  last_error: string | null;
 }
 
 export async function getSettings(db: D1Database, secret: string): Promise<IzchuSettings | null> {
@@ -100,6 +108,109 @@ export async function saveToken(db: D1Database, secret: string, token: StoredTok
 
 export async function clearTokens(db: D1Database): Promise<void> {
   await db.prepare("DELETE FROM oauth_tokens").run();
+}
+
+export async function getWebhookSettings(
+  db: D1Database,
+  secret: string,
+): Promise<WebhookSettings | null> {
+  const row = await db
+    .prepare(
+      `SELECT subscription_id, callback_token, enabled, last_event_at, last_error
+       FROM webhook_settings WHERE id = 1`,
+    )
+    .first<WebhookRow>();
+  if (!row) return null;
+  return {
+    subscriptionId: row.subscription_id,
+    callbackToken: await decrypt(secret, row.callback_token),
+    enabled: row.enabled === 1,
+    lastEventAt: row.last_event_at,
+    lastError: row.last_error,
+  };
+}
+
+export async function saveWebhookSettings(
+  db: D1Database,
+  secret: string,
+  value: Pick<WebhookSettings, "subscriptionId" | "callbackToken" | "enabled">,
+): Promise<void> {
+  const encryptedToken = await encrypt(secret, value.callbackToken);
+  await db
+    .prepare(
+      `INSERT INTO webhook_settings (id, subscription_id, callback_token, enabled, last_error)
+       VALUES (1, ?, ?, ?, NULL)
+       ON CONFLICT(id) DO UPDATE SET
+         subscription_id = excluded.subscription_id,
+         callback_token = excluded.callback_token,
+         enabled = excluded.enabled,
+         last_error = NULL,
+         updated_at = CURRENT_TIMESTAMP`,
+    )
+    .bind(value.subscriptionId, encryptedToken, value.enabled ? 1 : 0)
+    .run();
+}
+
+export async function disableWebhook(db: D1Database): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE webhook_settings
+       SET subscription_id = NULL, enabled = 0, updated_at = CURRENT_TIMESTAMP
+       WHERE id = 1`,
+    )
+    .run();
+}
+
+export async function claimWebhookEvent(
+  db: D1Database,
+  event: StravaWebhookEvent,
+): Promise<{ claimed: boolean; eventKey: string }> {
+  const eventKey = [
+    event.subscription_id,
+    event.object_type,
+    event.object_id,
+    event.aspect_type,
+    event.event_time,
+  ].join(":");
+  const result = await db
+    .prepare(
+      `INSERT OR IGNORE INTO webhook_events
+       (event_key, subscription_id, object_type, object_id, aspect_type, event_time)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      eventKey,
+      event.subscription_id,
+      event.object_type,
+      event.object_id,
+      event.aspect_type,
+      event.event_time,
+    )
+    .run();
+  return { claimed: (result.meta.changes ?? 0) > 0, eventKey };
+}
+
+export async function finishWebhookEvent(
+  db: D1Database,
+  eventKey: string,
+  error: string | null,
+): Promise<void> {
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE webhook_events
+         SET status = ?, error = ?, processed_at = CURRENT_TIMESTAMP
+         WHERE event_key = ?`,
+      )
+      .bind(error ? "error" : "processed", error, eventKey),
+    db
+      .prepare(
+        `UPDATE webhook_settings
+         SET last_event_at = CURRENT_TIMESTAMP, last_error = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = 1`,
+      )
+      .bind(error),
+  ]);
 }
 
 export async function saveSummary(

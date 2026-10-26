@@ -10,12 +10,13 @@ izchu 是一个面向 Strava 用户的开源、单用户、自托管活动摘要
 
 - 通过 Strava OAuth 读取最近活动、活动详情和可用的逐点 streams。
 - 根据 Strava 已收到的数据生成距离、时间、爬升、NP、IF、TSS、心率、踏频与做功摘要。
-- 每条活动都必须先手动生成、预览，再由用户确认写入 Strava。
+- 默认由用户手动生成、预览并确认写入 Strava；自动摘要需要实例所有者另行启用。
 - 写入时保留原描述，只新增或更新带 izchu 标记的摘要区块。
 - Client Secret、access token 与 refresh token 使用管理员密码派生的密钥加密后存入 D1。
 - 自动刷新过期的 Strava access token。
+- 可选启用 Strava Webhook：新骑行或标题、类型、隐私变化时自动刷新摘要。
 
-当前刻意不包含 Garmin Connect、后台定时任务、Webhook 或自动修改活动。若 Garmin 码表已经把数据同步给 Strava，izchu 能使用 Strava API 实际暴露出来的字段；Strava 未提供的 Garmin 专有指标不会凭空出现。
+当前刻意不包含 Garmin Connect 和轮询定时任务。若 Garmin 码表已经把数据同步给 Strava，izchu 能使用 Strava API 实际暴露出来的字段；Strava 未提供的 Garmin 专有指标不会凭空出现。
 
 ## 架构
 
@@ -34,6 +35,7 @@ izchu 是一个面向 Strava 用户的开源、单用户、自托管活动摘要
 4. 打开部署后的网址，页面会显示 Strava 所需的回调域名。
 5. 在 [Strava API Settings](https://www.strava.com/settings/api) 创建应用，将该域名填入 **Authorization Callback Domain**。
 6. 回到 izchu 填写 Client ID、Client Secret 和可选 FTP，然后点击 **连接 Strava**。
+7. 如需活动上传后自动写入摘要，在仪表盘中点击 **启用自动摘要**；izchu 会为这个 Strava API 应用创建唯一的 Webhook 订阅。
 
 Strava 应用需要允许 `read`、`activity:read_all` 和 `activity:write`。写权限只在你点击并确认“写入 Strava”时使用。
 
@@ -78,15 +80,18 @@ npm run deploy
 - 管理员密码不会存进 D1，但更换它会导致既有加密数据无法读取；如需更换，应先重新配置 Strava。
 - 浏览器会话使用 `HttpOnly`、`SameSite=Lax` Cookie；生产环境自动启用 `Secure`。
 - 写操作校验请求来源，OAuth 使用短期 state 防止请求伪造。
+- Webhook 使用随机私密回调路径，并校验订阅 ID 与 Strava 运动员 ID；回调会先快速确认，再在 Worker 后台处理。
 - Strava 凭据不会进入前端代码或 Git。
 - D1 会保存摘要与最小审计记录，不保存完整逐秒活动副本。
 
 ## 产品原则
 
-1. 手动优先：先预览，后确认，不在后台悄悄修改活动。
+1. 明确授权：默认手动预览；只有实例所有者主动启用后才自动修改活动。
 2. 数据最少化：只保存运行所需的数据。
 3. 一人一实例：用户拥有部署、数据库和 API 凭据。
 4. Strava 优先：先把核心链路做到可靠，再考虑可选数据源。
+
+自动摘要默认关闭，必须由实例所有者明确启用。Strava Webhook 只通知活动创建、删除及标题、类型、隐私变化，不会通知每一种训练数据编辑；自动处理只作用于骑行类型。
 
 ## 开源许可
 

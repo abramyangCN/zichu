@@ -14,6 +14,24 @@ export interface StoredToken {
   athleteName: string | null;
 }
 
+export interface WebhookSettings {
+  subscriptionId: number | null;
+  callbackToken: string;
+  enabled: boolean;
+  lastEventAt: string | null;
+  lastError: string | null;
+}
+
+export interface StravaWebhookEvent {
+  object_type: "activity" | "athlete";
+  object_id: number;
+  aspect_type: "create" | "update" | "delete";
+  owner_id: number;
+  subscription_id: number;
+  event_time: number;
+  updates?: Record<string, string | boolean>;
+}
+
 export interface StravaActivity {
   id: number;
   name: string;
