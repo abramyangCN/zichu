@@ -21,6 +21,7 @@ type Settings = {
   ftp: number | null;
   maxHeartRate: number | null;
   weatherEnabled: boolean;
+  powerMeterName: string | null;
   callbackUrl: string;
   callbackDomain: string;
 };
@@ -127,6 +128,7 @@ export default function App() {
           ftp: form.get("ftp"),
           maxHeartRate: form.get("maxHeartRate"),
           weatherEnabled: form.get("weatherEnabled") === "on",
+          powerMeterName: form.get("powerMeterName"),
         }),
       });
       setMessage("配置已加密保存。现在可以连接 Strava。");
@@ -218,5 +220,5 @@ function Brand() {
 
 function Setup({ settings, status, busy, onSave, compact = false }: { settings: Settings | null; status: Status; busy: string; onSave: (event: FormEvent<HTMLFormElement>) => void; compact?: boolean }) {
   if (!settings) return null;
-  return <section className={`setup ${compact ? "compact-setup" : ""}`}><div className="setup-copy"><span className="step">{status.configured ? "02" : "01"}</span><span className="eyebrow">一次性设置</span><h2>{status.configured ? "连接你的 Strava" : "填写 Strava API 凭据"}</h2><p>在 Strava API 设置中，把下方域名填入 <b>Authorization Callback Domain</b>。每套部署只服务一个人。</p><div className="callback"><span>回调域名</span><code>{settings.callbackDomain}</code><small>{settings.callbackUrl}</small></div></div><div className="panel setup-form"><form onSubmit={onSave}><label>Client ID<input name="clientId" inputMode="numeric" defaultValue={settings.stravaClientId} placeholder="例如 123456" required /></label><label>Client Secret<input name="clientSecret" type="password" placeholder={settings.hasClientSecret ? "已保存，留空则不修改" : "粘贴 Client Secret"} required={!settings.hasClientSecret} /></label><div className="two"><label>FTP（可选）<input name="ftp" type="number" min="50" max="700" defaultValue={settings.ftp ?? ""} placeholder="用于 IF / TSS" /></label><label>最大心率（可选）<input name="maxHeartRate" type="number" min="80" max="240" defaultValue={settings.maxHeartRate ?? ""} /></label></div><label className="weather-option"><input name="weatherEnabled" type="checkbox" defaultChecked={settings.weatherEnabled} /><span><b>在摘要中加入天气</b><small>使用活动开始时间和约 1 公里精度的起点坐标查询 Open-Meteo；结果缓存到你的 D1。</small></span></label><button className="primary" disabled={busy === "settings"}>{busy === "settings" ? "保存中…" : "保存配置"}</button></form>{status.configured && <a className="strava-button" href="/api/strava/connect">{status.connected ? "重新授权 Strava" : "连接 Strava"}</a>}</div></section>;
+  return <section className={`setup ${compact ? "compact-setup" : ""}`}><div className="setup-copy"><span className="step">{status.configured ? "02" : "01"}</span><span className="eyebrow">一次性设置</span><h2>{status.configured ? "连接你的 Strava" : "填写 Strava API 凭据"}</h2><p>在 Strava API 设置中，把下方域名填入 <b>Authorization Callback Domain</b>。每套部署只服务一个人。</p><div className="callback"><span>回调域名</span><code>{settings.callbackDomain}</code><small>{settings.callbackUrl}</small></div></div><div className="panel setup-form"><form onSubmit={onSave}><label>Client ID<input name="clientId" inputMode="numeric" defaultValue={settings.stravaClientId} placeholder="例如 123456" required /></label><label>Client Secret<input name="clientSecret" type="password" placeholder={settings.hasClientSecret ? "已保存，留空则不修改" : "粘贴 Client Secret"} required={!settings.hasClientSecret} /></label><div className="two"><label>FTP（可选）<input name="ftp" type="number" min="50" max="700" defaultValue={settings.ftp ?? ""} placeholder="用于 IF / TSS" /></label><label>最大心率（可选）<input name="maxHeartRate" type="number" min="80" max="240" defaultValue={settings.maxHeartRate ?? ""} /></label></div><label>功率计完整名称（可选）<input name="powerMeterName" defaultValue={settings.powerMeterName ?? ""} maxLength={100} placeholder="例如 Favero Assioma PRO RS-2" /><small>Strava 不提供传感器型号；填写后仅在有功率数据时显示。</small></label><label className="weather-option"><input name="weatherEnabled" type="checkbox" defaultChecked={settings.weatherEnabled} /><span><b>在摘要中加入天气</b><small>使用活动开始时间和约 1 公里精度的起点坐标查询 Open-Meteo；结果缓存到你的 D1。</small></span></label><button className="primary" disabled={busy === "settings"}>{busy === "settings" ? "保存中…" : "保存配置"}</button></form>{status.configured && <a className="strava-button" href="/api/strava/connect">{status.connected ? "重新授权 Strava" : "连接 Strava"}</a>}</div></section>;
 }

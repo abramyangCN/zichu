@@ -9,6 +9,7 @@ import { weatherSummary } from "./weather";
 
 export const SUMMARY_START = "<!-- izchu:summary:start -->";
 export const SUMMARY_END = "<!-- izchu:summary:end -->";
+const SUMMARY_HEADING = "🚴 骑行记录";
 
 const cyclingTypes = new Set([
   "Ride",
@@ -90,11 +91,11 @@ export function generateSummary(
   streams: StravaStreams,
   ftp: number | null,
   weather: ActivityWeather | null = null,
+  powerMeterName: string | null = null,
 ): GeneratedSummary {
   const metrics = buildMetrics(activity, streams, ftp);
-  const sections = [
-    activity.device_name ? `🚴 骑行记录 | ${activity.device_name}` : "🚴 骑行记录",
-  ];
+  const bikeName = activity.gear?.name?.trim();
+  const sections = [bikeName ? `${SUMMARY_HEADING} | ${bikeName}` : SUMMARY_HEADING];
   if (weather) sections.push(weatherSummary(weather));
 
   sections.push(
@@ -110,7 +111,9 @@ export function generateSummary(
   );
 
   const power = [
-    "⚡️ 功率表现",
+    powerMeterName?.trim()
+      ? `⚡️ 功率表现 | ${powerMeterName.trim()}`
+      : "⚡️ 功率表现",
     metrics.averagePower === null ? null : `平均功率：${metrics.averagePower} W`,
     metrics.maxPower === null ? null : `最大功率：${metrics.maxPower} W`,
   ].filter(Boolean);
@@ -132,25 +135,60 @@ export function generateSummary(
   };
 }
 
-export function mergeSummary(existing: string | null | undefined, summary: string): string {
-  const block = `${SUMMARY_START}\n${summary.trim()}\n${SUMMARY_END}`;
-  const current = (existing ?? "").trim();
+function legacyBlockRange(current: string): { start: number; end: number } | null {
   const start = current.indexOf(SUMMARY_START);
-  const end = current.indexOf(SUMMARY_END);
-  if (start >= 0 && end >= start) {
-    const before = current.slice(0, start).trimEnd();
-    const after = current.slice(end + SUMMARY_END.length).trimStart();
-    return [before, block, after].filter(Boolean).join("\n\n");
-  }
-  return current ? `${current}\n\n${block}` : block;
+  const markerEnd = current.indexOf(SUMMARY_END, start + SUMMARY_START.length);
+  if (start < 0 || markerEnd < start) return null;
+  return { start, end: markerEnd + SUMMARY_END.length };
 }
 
-export function removeSummary(existing: string | null | undefined): string {
-  const current = (existing ?? "").trim();
-  const start = current.indexOf(SUMMARY_START);
-  const end = current.indexOf(SUMMARY_END);
-  if (start < 0 || end < start) return current;
+function markerlessSummaryStart(current: string): number {
+  if (current.startsWith(SUMMARY_HEADING)) return 0;
+  const start = current.lastIndexOf(`\n\n${SUMMARY_HEADING}`);
+  return start < 0 ? -1 : start + 2;
+}
+
+function replaceRange(current: string, start: number, end: number, replacement: string): string {
   const before = current.slice(0, start).trimEnd();
-  const after = current.slice(end + SUMMARY_END.length).trimStart();
-  return [before, after].filter(Boolean).join("\n\n");
+  const after = current.slice(end).trimStart();
+  return [before, replacement.trim(), after].filter(Boolean).join("\n\n");
+}
+
+export function mergeSummary(
+  existing: string | null | undefined,
+  summary: string,
+  previousSummary: string | null = null,
+): string {
+  const next = summary.trim();
+  const current = (existing ?? "").trim();
+  const legacy = legacyBlockRange(current);
+  if (legacy) return replaceRange(current, legacy.start, legacy.end, next);
+
+  const previous = previousSummary?.trim();
+  if (previous) {
+    const start = current.indexOf(previous);
+    if (start >= 0) return replaceRange(current, start, start + previous.length, next);
+  }
+
+  const start = markerlessSummaryStart(current);
+  if (start >= 0) return replaceRange(current, start, current.length, next);
+  return current ? `${current}\n\n${next}` : next;
+}
+
+export function removeSummary(
+  existing: string | null | undefined,
+  previousSummary: string | null = null,
+): string {
+  const current = (existing ?? "").trim();
+  const legacy = legacyBlockRange(current);
+  if (legacy) return replaceRange(current, legacy.start, legacy.end, "");
+
+  const previous = previousSummary?.trim();
+  if (previous) {
+    const start = current.indexOf(previous);
+    if (start >= 0) return replaceRange(current, start, start + previous.length, "");
+  }
+
+  const start = markerlessSummaryStart(current);
+  return start >= 0 ? replaceRange(current, start, current.length, "") : current;
 }

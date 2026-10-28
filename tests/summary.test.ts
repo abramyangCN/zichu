@@ -13,7 +13,9 @@ import type { ActivityWeather, StravaActivity, StravaStreams } from "../src/work
 const activity: StravaActivity = {
   id: 42,
   name: "午后骑行",
-  device_name: "Cinelli Pressure",
+  device_name: "Garmin Edge 840",
+  gear_id: "b42",
+  gear: { id: "b42", name: "Cinelli Pressure" },
   start_date_local: "2026-10-23T14:00:00+08:00",
   distance: 40_120,
   moving_time: 5_400,
@@ -64,10 +66,11 @@ describe("generateSummary", () => {
     expect(result.description).toContain("最大功率：200 W");
     expect(result.description).toContain("移动时间：01:30 h");
     expect(result.description).toContain("骑行记录 | Cinelli Pressure");
+    expect(result.description).not.toContain("Garmin Edge 840");
   });
 
   it("includes optional cached weather with attribution", () => {
-    const result = generateSummary(activity, streams, 250, weather);
+    const result = generateSummary(activity, streams, 250, weather, "Favero Assioma PRO RS-2");
     expect(result.description).toBe(`🚴 骑行记录 | Cinelli Pressure
 
 🌤️ 天气信息 | Open-Meteo
@@ -83,7 +86,7 @@ describe("generateSummary", () => {
 🚀 平均速度：26.7 km/h
 ⛰️ 累计爬升：328 m
 
-⚡️ 功率表现
+⚡️ 功率表现 | Favero Assioma PRO RS-2
 平均功率：200 W
 最大功率：200 W
 
@@ -104,22 +107,29 @@ describe("generateSummary", () => {
 describe("mergeSummary", () => {
   it("preserves a user's existing description", () => {
     const result = mergeSummary("今天风很大", "测试摘要");
-    expect(result).toContain("今天风很大");
-    expect(result).toContain(SUMMARY_START);
-    expect(result).toContain(SUMMARY_END);
+    expect(result).toBe("今天风很大\n\n测试摘要");
+    expect(result).not.toContain(SUMMARY_START);
+    expect(result).not.toContain(SUMMARY_END);
   });
 
-  it("replaces only the previous izchu block", () => {
-    const first = mergeSummary("我的备注", "旧摘要");
-    const second = mergeSummary(first, "新摘要");
-    expect(second).toContain("我的备注");
-    expect(second).not.toContain("旧摘要");
-    expect(second.match(new RegExp(SUMMARY_START, "g"))).toHaveLength(1);
+  it("replaces a previously saved markerless summary", () => {
+    const previous = "🚴 骑行记录\n\n旧摘要";
+    const current = `我的备注\n\n${previous}`;
+    const next = "🚴 骑行记录\n\n新摘要";
+    expect(mergeSummary(current, next, previous)).toBe(`我的备注\n\n${next}`);
+  });
+
+  it("upgrades a legacy marked block without leaving visible comments", () => {
+    const legacy = `我的备注\n\n${SUMMARY_START}\n旧摘要\n${SUMMARY_END}`;
+    const result = mergeSummary(legacy, "🚴 骑行记录\n\n新摘要");
+    expect(result).toBe("我的备注\n\n🚴 骑行记录\n\n新摘要");
+    expect(result).not.toContain("<!--");
   });
 
   it("removes only the izchu block when an activity is no longer cycling", () => {
-    const withSummary = mergeSummary("保留我的备注", "骑行摘要");
-    expect(removeSummary(withSummary)).toBe("保留我的备注");
+    const summary = "🚴 骑行记录\n\n骑行摘要";
+    const withSummary = mergeSummary("保留我的备注", summary);
+    expect(removeSummary(withSummary, summary)).toBe("保留我的备注");
   });
 });
 

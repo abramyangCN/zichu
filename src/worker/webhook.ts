@@ -3,6 +3,7 @@ import {
   claimWebhookEvent,
   clearTokens,
   finishWebhookEvent,
+  getLatestWrittenSummary,
   getSettings,
   getToken,
   saveSummary,
@@ -60,13 +61,14 @@ export async function processWebhookEvent(env: Env, event: StravaWebhookEvent): 
       throw new Error("当前 Strava 授权缺少 activity:write");
     }
 
-    const [{ activity, streams }, settings] = await Promise.all([
+    const [{ activity, streams }, settings, previousSummary] = await Promise.all([
       loadActivity(env, event.object_id),
       getSettings(env.DB, env.IZCHU_ADMIN_PASSWORD),
+      getLatestWrittenSummary(env.DB, event.object_id),
     ]);
 
     if (!isCyclingActivity(activity)) {
-      const description = removeSummary(activity.description);
+      const description = removeSummary(activity.description, previousSummary);
       if (description !== (activity.description ?? "").trim()) {
         await updateDescription(env, activity.id, description);
         await audit(env.DB, "webhook.summary.removed", activity.id, activity.name);
@@ -75,8 +77,14 @@ export async function processWebhookEvent(env: Env, event: StravaWebhookEvent): 
     }
 
     const weather = settings?.weatherEnabled ? await activityWeather(env.DB, activity) : null;
-    const summary = generateSummary(activity, streams, settings?.ftp ?? null, weather);
-    const description = mergeSummary(activity.description, summary.description);
+    const summary = generateSummary(
+      activity,
+      streams,
+      settings?.ftp ?? null,
+      weather,
+      settings?.powerMeterName ?? null,
+    );
+    const description = mergeSummary(activity.description, summary.description, previousSummary);
     if (description === (activity.description ?? "").trim()) {
       await audit(env.DB, "webhook.summary.unchanged", activity.id, activity.name);
       return;

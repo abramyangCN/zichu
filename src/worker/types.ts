@@ -4,6 +4,7 @@ export interface IzchuSettings {
   ftp: number | null;
   maxHeartRate: number | null;
   weatherEnabled: boolean;
+  powerMeterName: string | null;
 }
 
 export interface StoredToken {
@@ -57,6 +58,14 @@ export interface StravaActivity {
   average_temp?: number;
   description?: string | null;
   device_name?: string;
+  gear_id?: string | null;
+  gear?: {
+    id?: string;
+    name?: string;
+    brand_name?: string;
+    model_name?: string;
+    description?: string;
+  } | null;
 }
 
 export interface ActivityWeather {

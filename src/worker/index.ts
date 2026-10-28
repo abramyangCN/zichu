@@ -4,6 +4,7 @@ import {
   audit,
   clearTokens,
   disableWebhook,
+  getLatestWrittenSummary,
   getSettings,
   getToken,
   getWebhookSettings,
@@ -105,6 +106,7 @@ app.get("/api/status", async (c) => {
     ftp: settings?.ftp ?? null,
     maxHeartRate: settings?.maxHeartRate ?? null,
     weatherEnabled: settings?.weatherEnabled ?? false,
+    powerMeterName: settings?.powerMeterName ?? null,
     webhookEnabled: webhook?.enabled ?? false,
     webhookLastEventAt: webhook?.lastEventAt ?? null,
     webhookLastError: webhook?.lastError ?? null,
@@ -176,6 +178,7 @@ app.get("/api/settings", async (c) => {
     ftp: settings?.ftp ?? null,
     maxHeartRate: settings?.maxHeartRate ?? null,
     weatherEnabled: settings?.weatherEnabled ?? false,
+    powerMeterName: settings?.powerMeterName ?? null,
     callbackUrl: `${new URL(c.req.url).origin}/api/strava/callback`,
     callbackDomain: new URL(c.req.url).host,
   });
@@ -188,6 +191,7 @@ app.put("/api/settings", async (c) => {
     ftp?: number | string | null;
     maxHeartRate?: number | string | null;
     weatherEnabled?: boolean;
+    powerMeterName?: string | null;
   }>();
   const clientId = body.stravaClientId?.trim() ?? "";
   const existing = await getSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD);
@@ -198,12 +202,17 @@ app.put("/api/settings", async (c) => {
   const ftp = optionalNumber(body.ftp, 50, 700);
   const maxHeartRate = optionalNumber(body.maxHeartRate, 80, 240);
   const weatherEnabled = body.weatherEnabled ?? existing?.weatherEnabled ?? false;
+  const powerMeterName =
+    body.powerMeterName === undefined
+      ? existing?.powerMeterName ?? null
+      : body.powerMeterName?.trim().slice(0, 100) || null;
   await saveSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD, {
     stravaClientId: clientId,
     stravaClientSecret: clientSecret,
     ftp,
     maxHeartRate,
     weatherEnabled,
+    powerMeterName,
   });
   await audit(c.env.DB, "settings.updated", null, null);
   return c.json({ saved: true });
@@ -351,7 +360,13 @@ app.post("/api/strava/activities/:id/summary", async (c) => {
     const weather = settings?.weatherEnabled
       ? await activityWeather(c.env.DB, activity)
       : null;
-    const summary = generateSummary(activity, streams, settings?.ftp ?? null, weather);
+    const summary = generateSummary(
+      activity,
+      streams,
+      settings?.ftp ?? null,
+      weather,
+      settings?.powerMeterName ?? null,
+    );
     await saveSummary(c.env.DB, activity.id, activity.name, summary.description, false);
     return c.json(summary);
   } catch (error) {
@@ -367,15 +382,22 @@ app.post("/api/strava/activities/:id/write-summary", async (c) => {
     return c.json({ error: "需要重新授权 activity:write 权限" }, 409);
   }
   try {
-    const [{ activity, streams }, settings] = await Promise.all([
+    const [{ activity, streams }, settings, previousSummary] = await Promise.all([
       activityBundle(c.env, activityId),
       getSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD),
+      getLatestWrittenSummary(c.env.DB, activityId),
     ]);
     const weather = settings?.weatherEnabled
       ? await activityWeather(c.env.DB, activity)
       : null;
-    const summary = generateSummary(activity, streams, settings?.ftp ?? null, weather);
-    const description = mergeSummary(activity.description, summary.description);
+    const summary = generateSummary(
+      activity,
+      streams,
+      settings?.ftp ?? null,
+      weather,
+      settings?.powerMeterName ?? null,
+    );
+    const description = mergeSummary(activity.description, summary.description, previousSummary);
     await updateDescription(c.env, activityId, description);
     await Promise.all([
       saveSummary(c.env.DB, activity.id, activity.name, summary.description, true),

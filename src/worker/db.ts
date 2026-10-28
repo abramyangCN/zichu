@@ -13,6 +13,7 @@ interface SettingsRow {
   ftp: number | null;
   max_heart_rate: number | null;
   weather_enabled: number;
+  power_meter_name: string | null;
 }
 
 interface TokenRow {
@@ -35,7 +36,7 @@ interface WebhookRow {
 export async function getSettings(db: D1Database, secret: string): Promise<IzchuSettings | null> {
   const row = await db
     .prepare(
-      "SELECT strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled FROM settings WHERE id = 1",
+      "SELECT strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled, power_meter_name FROM settings WHERE id = 1",
     )
     .first<SettingsRow>();
   if (!row) return null;
@@ -45,6 +46,7 @@ export async function getSettings(db: D1Database, secret: string): Promise<Izchu
     ftp: row.ftp,
     maxHeartRate: row.max_heart_rate,
     weatherEnabled: row.weather_enabled === 1,
+    powerMeterName: row.power_meter_name,
   };
 }
 
@@ -56,14 +58,15 @@ export async function saveSettings(
   const encryptedSecret = await encrypt(secret, value.stravaClientSecret);
   await db
     .prepare(
-      `INSERT INTO settings (id, strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled)
-       VALUES (1, ?, ?, ?, ?, ?)
+      `INSERT INTO settings (id, strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled, power_meter_name)
+       VALUES (1, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          strava_client_id = excluded.strava_client_id,
          strava_client_secret = excluded.strava_client_secret,
          ftp = excluded.ftp,
          max_heart_rate = excluded.max_heart_rate,
          weather_enabled = excluded.weather_enabled,
+         power_meter_name = excluded.power_meter_name,
          updated_at = CURRENT_TIMESTAMP`,
     )
     .bind(
@@ -72,6 +75,7 @@ export async function saveSettings(
       value.ftp,
       value.maxHeartRate,
       value.weatherEnabled ? 1 : 0,
+      value.powerMeterName,
     )
     .run();
 }
@@ -320,6 +324,22 @@ export async function saveSummary(
     )
     .bind(activityId, activityName, summary, writtenToStrava ? 1 : 0)
     .run();
+}
+
+export async function getLatestWrittenSummary(
+  db: D1Database,
+  activityId: number,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT summary FROM summary_history
+       WHERE activity_id = ? AND written_to_strava = 1
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+    )
+    .bind(activityId)
+    .first<{ summary: string }>();
+  return row?.summary ?? null;
 }
 
 export async function audit(
