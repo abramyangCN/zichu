@@ -14,6 +14,7 @@ interface SettingsRow {
   max_heart_rate: number | null;
   weather_enabled: number;
   power_meter_name: string | null;
+  heart_rate_monitor_name: string | null;
 }
 
 interface TokenRow {
@@ -36,7 +37,7 @@ interface WebhookRow {
 export async function getSettings(db: D1Database, secret: string): Promise<IzchuSettings | null> {
   const row = await db
     .prepare(
-      "SELECT strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled, power_meter_name FROM settings WHERE id = 1",
+      "SELECT strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled, power_meter_name, heart_rate_monitor_name FROM settings WHERE id = 1",
     )
     .first<SettingsRow>();
   if (!row) return null;
@@ -47,6 +48,7 @@ export async function getSettings(db: D1Database, secret: string): Promise<Izchu
     maxHeartRate: row.max_heart_rate,
     weatherEnabled: row.weather_enabled === 1,
     powerMeterName: row.power_meter_name,
+    heartRateMonitorName: row.heart_rate_monitor_name,
   };
 }
 
@@ -58,8 +60,8 @@ export async function saveSettings(
   const encryptedSecret = await encrypt(secret, value.stravaClientSecret);
   await db
     .prepare(
-      `INSERT INTO settings (id, strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled, power_meter_name)
-       VALUES (1, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO settings (id, strava_client_id, strava_client_secret, ftp, max_heart_rate, weather_enabled, power_meter_name, heart_rate_monitor_name)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          strava_client_id = excluded.strava_client_id,
          strava_client_secret = excluded.strava_client_secret,
@@ -67,6 +69,7 @@ export async function saveSettings(
          max_heart_rate = excluded.max_heart_rate,
          weather_enabled = excluded.weather_enabled,
          power_meter_name = excluded.power_meter_name,
+         heart_rate_monitor_name = excluded.heart_rate_monitor_name,
          updated_at = CURRENT_TIMESTAMP`,
     )
     .bind(
@@ -76,6 +79,7 @@ export async function saveSettings(
       value.maxHeartRate,
       value.weatherEnabled ? 1 : 0,
       value.powerMeterName,
+      value.heartRateMonitorName,
     )
     .run();
 }

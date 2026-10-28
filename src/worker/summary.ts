@@ -92,6 +92,7 @@ export function generateSummary(
   ftp: number | null,
   weather: ActivityWeather | null = null,
   powerMeterName: string | null = null,
+  heartRateMonitorName: string | null = null,
 ): GeneratedSummary {
   const metrics = buildMetrics(activity, streams, ftp);
   const bikeName = activity.gear?.name?.trim();
@@ -100,7 +101,9 @@ export function generateSummary(
 
   sections.push(
     [
-      "📊 骑行数据",
+      activity.device_name?.trim()
+        ? `📊 骑行数据 | ${activity.device_name.trim()}`
+        : "📊 骑行数据",
       `📏 距离：${metrics.distanceKm} km`,
       `⏱️ 移动时间：${duration(metrics.movingMinutes)} h`,
       metrics.averageSpeedKmh === null ? null : `🚀 平均速度：${metrics.averageSpeedKmh} km/h`,
@@ -120,7 +123,9 @@ export function generateSummary(
   if (power.length > 1) sections.push(power.join("\n"));
 
   const heartRate = [
-    "🫀 心率表现",
+    heartRateMonitorName?.trim()
+      ? `🫀 心率表现 | ${heartRateMonitorName.trim()}`
+      : "🫀 心率表现",
     metrics.averageHeartRate === null ? null : `平均心率：${metrics.averageHeartRate} bpm`,
     metrics.maxHeartRate === null ? null : `最大心率：${metrics.maxHeartRate} bpm`,
   ].filter(Boolean);

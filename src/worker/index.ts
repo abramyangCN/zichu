@@ -107,6 +107,7 @@ app.get("/api/status", async (c) => {
     maxHeartRate: settings?.maxHeartRate ?? null,
     weatherEnabled: settings?.weatherEnabled ?? false,
     powerMeterName: settings?.powerMeterName ?? null,
+    heartRateMonitorName: settings?.heartRateMonitorName ?? null,
     webhookEnabled: webhook?.enabled ?? false,
     webhookLastEventAt: webhook?.lastEventAt ?? null,
     webhookLastError: webhook?.lastError ?? null,
@@ -179,6 +180,7 @@ app.get("/api/settings", async (c) => {
     maxHeartRate: settings?.maxHeartRate ?? null,
     weatherEnabled: settings?.weatherEnabled ?? false,
     powerMeterName: settings?.powerMeterName ?? null,
+    heartRateMonitorName: settings?.heartRateMonitorName ?? null,
     callbackUrl: `${new URL(c.req.url).origin}/api/strava/callback`,
     callbackDomain: new URL(c.req.url).host,
   });
@@ -192,6 +194,7 @@ app.put("/api/settings", async (c) => {
     maxHeartRate?: number | string | null;
     weatherEnabled?: boolean;
     powerMeterName?: string | null;
+    heartRateMonitorName?: string | null;
   }>();
   const clientId = body.stravaClientId?.trim() ?? "";
   const existing = await getSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD);
@@ -206,6 +209,10 @@ app.put("/api/settings", async (c) => {
     body.powerMeterName === undefined
       ? existing?.powerMeterName ?? null
       : body.powerMeterName?.trim().slice(0, 100) || null;
+  const heartRateMonitorName =
+    body.heartRateMonitorName === undefined
+      ? existing?.heartRateMonitorName ?? null
+      : body.heartRateMonitorName?.trim().slice(0, 100) || null;
   await saveSettings(c.env.DB, c.env.IZCHU_ADMIN_PASSWORD, {
     stravaClientId: clientId,
     stravaClientSecret: clientSecret,
@@ -213,6 +220,7 @@ app.put("/api/settings", async (c) => {
     maxHeartRate,
     weatherEnabled,
     powerMeterName,
+    heartRateMonitorName,
   });
   await audit(c.env.DB, "settings.updated", null, null);
   return c.json({ saved: true });
@@ -366,6 +374,7 @@ app.post("/api/strava/activities/:id/summary", async (c) => {
       settings?.ftp ?? null,
       weather,
       settings?.powerMeterName ?? null,
+      settings?.heartRateMonitorName ?? null,
     );
     await saveSummary(c.env.DB, activity.id, activity.name, summary.description, false);
     return c.json(summary);
@@ -396,6 +405,7 @@ app.post("/api/strava/activities/:id/write-summary", async (c) => {
       settings?.ftp ?? null,
       weather,
       settings?.powerMeterName ?? null,
+      settings?.heartRateMonitorName ?? null,
     );
     const description = mergeSummary(activity.description, summary.description, previousSummary);
     await updateDescription(c.env, activityId, description);

@@ -83,6 +83,7 @@ export async function processWebhookEvent(env: Env, event: StravaWebhookEvent): 
       settings?.ftp ?? null,
       weather,
       settings?.powerMeterName ?? null,
+      settings?.heartRateMonitorName ?? null,
     );
     const description = mergeSummary(activity.description, summary.description, previousSummary);
     if (description === (activity.description ?? "").trim()) {

@@ -66,11 +66,18 @@ describe("generateSummary", () => {
     expect(result.description).toContain("最大功率：200 W");
     expect(result.description).toContain("移动时间：01:30 h");
     expect(result.description).toContain("骑行记录 | Cinelli Pressure");
-    expect(result.description).not.toContain("Garmin Edge 840");
+    expect(result.description).toContain("📊 骑行数据 | Garmin Edge 840");
   });
 
   it("includes optional cached weather with attribution", () => {
-    const result = generateSummary(activity, streams, 250, weather, "Favero Assioma PRO RS-2");
+    const result = generateSummary(
+      activity,
+      streams,
+      250,
+      weather,
+      "Favero Assioma PRO RS-2",
+      "Garmin HRM-Tri",
+    );
     expect(result.description).toBe(`🚴 骑行记录 | Cinelli Pressure
 
 🌤️ 天气信息 | Open-Meteo
@@ -80,7 +87,7 @@ describe("generateSummary", () => {
 💨 风速：12.6 km/h
 💧 湿度：82%
 
-📊 骑行数据
+📊 骑行数据 | Garmin Edge 840
 📏 距离：40.1 km
 ⏱️ 移动时间：01:30 h
 🚀 平均速度：26.7 km/h
@@ -90,7 +97,7 @@ describe("generateSummary", () => {
 平均功率：200 W
 最大功率：200 W
 
-🫀 心率表现
+🫀 心率表现 | Garmin HRM-Tri
 平均心率：148 bpm
 最大心率：181 bpm`);
     expect(result.weather).toEqual(weather);

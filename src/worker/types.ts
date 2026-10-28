@@ -5,6 +5,7 @@ export interface IzchuSettings {
   maxHeartRate: number | null;
   weatherEnabled: boolean;
   powerMeterName: string | null;
+  heartRateMonitorName: string | null;
 }
 
 export interface StoredToken {
